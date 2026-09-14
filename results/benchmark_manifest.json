@@ -1,0 +1,17 @@
+{
+  "seed": 42,
+  "aggregation": "two-judge majority, ties -> negative",
+  "n_reports": 19361,
+  "n_videos": 807,
+  "any_rate": 0.9113,
+  "mean_per_report": 2.5802,
+  "judge_failure_cells": 24,
+  "reliability_tiers": {
+    "H1": "low",
+    "H2": "high",
+    "H3": "medium",
+    "H4": "medium",
+    "H5": "high",
+    "H6": "high"
+  }
+}

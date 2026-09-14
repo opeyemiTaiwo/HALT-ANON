@@ -1,0 +1,25 @@
+feature,type,name,n_human_agreed,panel_pos_rate,human_pos_rate,AUC_vs_panel,AUC_vs_human,gap
+n_words,H1,Scene Fabrication,62,0.823,0.145,0.727,0.566,0.161
+n_words,H2,Crime Misclassification,99,0.354,0.273,0.621,0.608,0.013
+n_words,H3,Crime Missed,110,0.392,0.155,0.484,0.39,0.093
+n_words,H4,Severity Minimization,103,0.369,0.155,0.505,0.275,0.23
+n_words,H5,Entity Fabrication,64,0.808,0.672,0.784,0.8,-0.016
+n_words,H6,Phantom Actors,84,0.392,0.226,0.662,0.668,-0.006
+novel_rate,H1,Scene Fabrication,62,0.823,0.145,0.535,0.546,-0.012
+novel_rate,H2,Crime Misclassification,99,0.354,0.273,0.545,0.6,-0.055
+novel_rate,H3,Crime Missed,110,0.392,0.155,0.618,0.644,-0.026
+novel_rate,H4,Severity Minimization,103,0.369,0.155,0.547,0.661,-0.114
+novel_rate,H5,Entity Fabrication,64,0.808,0.672,0.467,0.595,-0.127
+novel_rate,H6,Phantom Actors,84,0.392,0.226,0.567,0.607,-0.041
+missing_rate,H1,Scene Fabrication,62,0.823,0.145,0.3,0.536,-0.236
+missing_rate,H2,Crime Misclassification,99,0.354,0.273,0.5,0.565,-0.066
+missing_rate,H3,Crime Missed,110,0.392,0.155,0.671,0.692,-0.021
+missing_rate,H4,Severity Minimization,103,0.369,0.155,0.608,0.73,-0.122
+missing_rate,H5,Entity Fabrication,64,0.808,0.672,0.254,0.342,-0.088
+missing_rate,H6,Phantom Actors,84,0.392,0.226,0.408,0.45,-0.042
+hedge_rate,H1,Scene Fabrication,62,0.823,0.145,0.551,0.451,0.101
+hedge_rate,H2,Crime Misclassification,99,0.354,0.273,0.471,0.573,-0.102
+hedge_rate,H3,Crime Missed,110,0.392,0.155,0.522,0.547,-0.025
+hedge_rate,H4,Severity Minimization,103,0.369,0.155,0.616,0.636,-0.019
+hedge_rate,H5,Entity Fabrication,64,0.808,0.672,0.464,0.577,-0.113
+hedge_rate,H6,Phantom Actors,84,0.392,0.226,0.461,0.45,0.011

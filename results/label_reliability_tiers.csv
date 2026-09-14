@@ -1,0 +1,7 @@
+type,axis,n_consensus,kappa_human_human,kappa_panel_consensus,tier
+H1,fabrication,62,-0.012,0.15,low
+H2,distortion,99,0.471,0.7,high
+H3,omission,110,0.533,0.432,medium
+H4,distortion,103,0.41,0.583,medium
+H5,fabrication,64,0.083,0.811,high
+H6,fabrication,84,0.191,0.658,high
