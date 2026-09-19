@@ -23,133 +23,100 @@ and \emph{distortion}. We report per-type AUC and $F_1$, a macro over the six,
 a macro restricted to the reliable types (Section~\ref{sec:labels}), and a
 binary any-hallucination score.
 
-\paragraph{Provenance.} The reports, taxonomy, panel protocol, and
-human-validation subset were introduced by prior work \citep{priorwork2026} to
-measure hallucination prevalence. \textsc{halt} reuses them as raw material;
-new here are the detection task, the reliability tiering, the four splits, the
-baselines, and every analysis in Section~\ref{sec:results}.
+\paragraph{Provenance.} The reports, taxonomy, panel protocol, per-judge
+verdicts and human-validation subset were introduced and released by
+prior work \citep{priorwork2026} to measure hallucination prevalence, and \textsc{halt} reuses all of it as raw material. New here are the
+held-out-source formulation of the detection task, the reliability tiering, the
+four splits, the reference-conditioned and encoder detectors,
+and every analysis in Section~\ref{sec:results}.
 
-The corpus draws 807 anomalous surveillance videos from UCF-Crime
-\citep{sultani2018real} across eleven crime categories, paired with the
-fine-grained annotations of UCA \citep{yuan2024towards} as reference. Three
-frontier multimodal LLMs each analyse every video under eight prompting
-strategies (zero-shot, chain-of-thought, meta-prompting, self-consistency,
-sequential, ReAct, least-to-most, and iterative refinement), yielding
-$19{,}361$ reports totalling $21.77$M words. Two properties distinguish this
-from existing hallucination benchmarks: the outputs are long-form, averaging
-$1{,}124$ words, and the corpus is fully crossed, so any comparison across
-source LLMs holds the input fixed by construction. Verbosity nonetheless varies
-by a factor of three under an identical task (Table~\ref{tab:corpus}), which is
-the regularity Section~\ref{sec:results} shows detectors exploiting.
+The inherited corpus is $19{,}361$ reports on 807 UCF-Crime videos
+\citep{sultani2018real} with UCA annotations \citep{yuan2024towards} as
+reference, written by three frontier multimodal LLMs under eight prompting
+strategies. Two of its properties make the held-out-source question askable.
+It is fully crossed up to seven failed API calls, so withholding a source LLM
+holds
+the input fixed by construction. And verbosity varies by a factor of three under an identical
+task, 580 mean words per report for GPT against $1{,}802$ for Gemini, the
+regularity Section~\ref{sec:results} shows detectors exploiting.
 
 \begin{figure}[!b]
 \centering
-\includegraphics[width=\textwidth]{fig_pipeline_new}
+\includegraphics[width=\textwidth]{fig_pipeline}
 \caption{The \textsc{halt} pipeline. The shaded band is inherited; the
 remainder is this paper: aggregating the raw verdicts into labels whose
 per-type reliability is calibrated against an independently scored subset,
-partitioning the corpus into four video-disjoint splits, and evaluating five
-feature sets on every split and every type.}
+partitioning the corpus into four video-disjoint splits, and evaluating four
+detector families against a base-rate control that reads no report text. In
+step 2 each cell is one report, rows are source LLMs and columns are
+video-by-strategy conditions; existing benchmarks admit only the standard
+split.}
 \label{fig:pipeline}
 \end{figure}
 
-\begin{table}[t]
-\caption{Corpus composition. Every source LLM describes all 807 videos under all
-eight strategies, so the corpus is fully crossed. Gemini is seven reports short
-because of unrecoverable API failures.}
-\label{tab:corpus}
-\centering\small
-\begin{tabular}{lrrr}
-\toprule
-Source LLM & Reports & Words & Mean words/report \\
-\midrule
-Claude & 6{,}456 & 6.40M  & 992 \\
-GPT    & 6{,}456 & 3.74M  & 580 \\
-Gemini & 6{,}449 & 11.62M & 1{,}802 \\
-\midrule
-Total  & 19{,}361 & 21.77M & 1{,}124 \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \subsection{Labels and their reliability}
 \label{sec:labels}
 \label{sec:protocol}
 \label{sec:reliability}
 
-Labels come from a panel of the same three models acting as judges
-\citep{zheng2023judging}. Each report is scored by the two judges other than
-the model that produced it, so no model evaluates its own output and
-self-preference bias \citep{panickssery2024llm} is structurally excluded. This
-yields $38{,}722$ verdicts, two per report, with zero self-judging rows, both
-verifiable from the released per-judge file. The released label is the
-two-judge majority with ties broken toward no hallucination, which with two
-judges is a conjunction; we release the per-judge verdicts as well, so
-alternative aggregation rules can be applied without rerunning any model. Judge
-inputs truncate the reference to $1{,}500$ and the model output to $3{,}000$
-characters, and we release the pre-truncation length of every report so this
-can be conditioned on. A small number of cells carry a failure sentinel rather
-than a verdict; these are excluded from the vote and flagged.
+The inherited labels come from a panel of the same three models acting as
+judges \citep{zheng2023judging}, each report scored by the two that did not
+write it, so self-preference bias \citep{panickssery2024llm} is structurally
+excluded \citep{priorwork2026}. Three properties of that design matter
+here. It yields two verdicts per report under a conjunctive rule, so
+alternative rules can be applied post hoc
+(Section~\ref{sec:corpusstats}). Judge inputs cap the reference at $1{,}500$
+and the report at $3{,}000$ characters, which
+Section~\ref{sec:lengthbias} shows shapes the labels. And no model judging its
+own output means each source LLM is scored by a distinct judge pair, the
+confound of Section~\ref{sec:confound}.
 
-Two human annotators independently scored a stratified subset of 130 reports
-spanning all source LLMs and strategies, working from the reference annotation
-and the report text with the panel's labels hidden. For each type we compute
-agreement between the raters, and between the panel and the rater consensus,
-restricting the latter to reports where the raters agree. From these we assign
-each type a reliability tier and exclude the low tier from the headline macro.
-The tiers and what they imply for reading absolute rates are reported in
-Section~\ref{sec:corpusstats} and released with the resource.
+An inherited subset of 130 reports carries independent labels from two human
+annotators, members of the research group rather than forensic practitioners,
+who worked from text with the panel's labels hidden. From the rater-rater and
+panel-consensus agreements we assign each type a reliability tier and exclude
+the low tier from the headline macro; the tiering is ours, and
+Section~\ref{sec:corpusstats} reports it.
 
 \subsection{Evaluation setup}
 \label{sec:splits}
 \label{sec:baselines}
 \label{sec:release}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.72\textwidth]{fig0_splits}
-\caption{The corpus is fully crossed, so the same 19{,}361 reports admit
-several disjoint partitions. Each cell is one report; rows are source LLMs and
-columns are video-by-strategy conditions. (a) The standard split withholds
-videos, leaving every source LLM represented in training. (b) Withholding a
-source LLM asks whether a detector transfers to a model family it has never
-seen, which a standard split cannot test because the source LLMs at test time
-are the source LLMs at training time. (c) Withholding the multi-turn
-strategies tests transfer across prompting regimes. Existing hallucination
-benchmarks admit only (a).}
-\label{fig:splits}
-\end{figure}
 
-Each video contributes 24 reports, so a split over reports would place the same
-video in training and test and let a detector memorise the video rather than
-learn the phenomenon. All splits are therefore video-disjoint
-(Figure~\ref{fig:splits}). The \textbf{standard} split is crime-stratified
-$70/15/15$ over videos. The \textbf{held-out source LLM} split trains on two
-source LLMs and tests on the third; we report all three folds, since a single
-fold confounds the difficulty of the held-out model with the transfer question.
-The \textbf{held-out strategy} split trains on the four single-turn strategies
-and tests on the four multi-turn ones. The \textbf{gold subset} of 130
-human-annotated reports is flagged in the release as a small high-confidence
-evaluation set. The held-out-source condition is the diagnostic one: existing
-benchmarks draw from a single source LLM or pool several without controlling
-the split, so a detector can score well by recognising who wrote a report.
+Each video contributes 24 reports, so a split over reports would let a detector
+memorise the video rather than learn the phenomenon; Figure~\ref{fig:pipeline}
+shows the three partitions.
+The standard and held-out-strategy splits are therefore video-disjoint. The
+held-out-source split is not, since every video is described by every source
+LLM; Section~\ref{sec:inversion} reports a disjointness-enforced variant under
+which the effect is larger, so the main tables are conservative.
 
-We provide five reference detectors, all logistic regression with balanced
-class weights, deliberately simple so that difficulty is attributable to the
-task rather than to under-tuned models. \textbf{Surface} uses verbosity,
-sentence statistics, hedging density, numeric detail density, type-token ratio,
-truncation length, and source and strategy identity indicators;
-\textbf{surface-noid} drops the identity features; \textbf{tfidf} uses word
-1--2 gram TF-IDF; \textbf{embed} uses sentence embeddings; and
-\textbf{grounded} uses report-versus-reference features only, namely the rate
-of report tokens absent from the reference, the rate of reference tokens absent
-from the report, Jaccard overlap, reference coverage, length ratio, and TF-IDF
-cosine. Identity features are dropped automatically on any split where they are
-constant in training and unseen at test.
+We provide reference detectors in two families. The first is linear: five
+logistic regressions with balanced class weights, differing only in features.
+\textbf{Surface} uses verbosity, sentence statistics, hedging density, numeric
+detail density, type-token ratio, truncation length, and source and strategy
+identity indicators; \textbf{surface-noid} drops the identity features;
+\textbf{tfidf} uses word 1--2 gram TF-IDF; \textbf{embed} uses sentence
+embeddings; and \textbf{grounded} uses report-versus-reference features only,
+namely the rate of report tokens absent from the reference, the rate of
+reference tokens absent from the report, Jaccard overlap, reference coverage,
+length ratio and TF-IDF cosine. Identity features are dropped automatically on
+any split where they are constant in training and unseen at test.
 
-We release \textsc{halt}: the corpus with reference annotations, the per-judge
-verdicts, the aggregated labels, the judge and rater rubrics, the reliability
-tiers with supporting $n$, the splits, reference implementations of every
-baseline, the extended result tables cited in Section~\ref{sec:results}, and a
-datasheet \citep{gebru2021datasheets}. The artifact is available at
-\url{https://anonymous.4open.science/r/HALT-ANON-7FF2/}.
+The second family is fine-tuned encoders. One encoder per split, six per-type heads plus a
+binary head, report and reference as a sentence pair, positive weights matching
+the linear baselines. Context length is chosen rather than defaulted: the judge
+saw about 1{,}125 tokens, so a detector at 512 sees less than the judge did. We
+report \textbf{DeBERTa-v3-base} at its 512-token limit, \textbf{ModernBERT-base}
+at 1{,}280, matching the judge's view, and ModernBERT at 2{,}048, exceeding
+it.
+
+The corpus, per-judge verdicts, aggregated labels and rubrics were released
+with the prior study. \textsc{halt} adds, and releases: the reliability tiers
+with supporting $n$, the four splits, reference implementations of every
+detector, and a datasheet \citep{gebru2021datasheets}. The artifact is
+available at \url{https://anonymous.4open.science/r/HALT-ANON-7FF2/}.
+Supporting tables cited below are in Appendices~\ref{app:strategy}
+to~\ref{app:rubrics} of this paper.

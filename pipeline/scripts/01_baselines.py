@@ -66,8 +66,10 @@ def build(fs, use_gen, use_tec):
     return np.hstack(parts)
 
 
+from tqdm.auto import tqdm
 rows = []
-for sname, (scol, ug, ut) in SPLITS.items():
+for sname, (scol, ug, ut) in tqdm(SPLITS.items(), total=len(SPLITS),
+                                  desc='splits', unit='split'):
     tr, te = (df[scol] == "train").to_numpy(), (df[scol] == "test").to_numpy()
     for fs in ["surface", "surface_noid", "tfidf"]:
         X = build(fs, ug, ut)

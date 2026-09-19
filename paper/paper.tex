@@ -8,15 +8,29 @@
 \documentclass{article}
 \usepackage{iclr2027_conference,times}
 \usepackage{amsmath,amssymb,booktabs,graphicx,multirow}
+\usepackage{float}
 \usepackage[utf8]{inputenc}
 \usepackage{hyperref}
 \usepackage{url}
+
+% Tighten the space around floats. Without this the class stretches
+% \textfloatsep to fill the page, leaving a visible gap between a figure or
+% table and the text that follows it.
+\setlength{\textfloatsep}{12pt plus 2pt minus 2pt}
+\setlength{\floatsep}{10pt plus 2pt minus 2pt}
+\setlength{\intextsep}{10pt plus 2pt minus 2pt}
+\setlength{\dbltextfloatsep}{12pt plus 2pt minus 2pt}
+
+% The class leaves \belowcaptionskip at 0pt, so a caption above a table sits
+% flush against the top rule. Give it the same breathing room as above.
+\setlength{\belowcaptionskip}{6pt}
 
 % Uncomment ONLY for the camera-ready. While commented, the style file
 % anonymises the author block automatically.
 %\iclrfinalcopy
 
-\title{How Hallucination Detection Fails Across LLMs}
+\title{HALT: Held-Out-Source Evaluation for
+\mbox{Hallucination} Detection in Forensic Video Reporting}
 
 % Authors must not appear in the submitted version; the style file hides
 % this block while \iclrfinalcopy is commented out above.
@@ -35,66 +49,63 @@ Affiliation \\
 
 \begin{abstract}
 Hallucination detectors for long-form multimodal generation are almost always
-evaluated on text from the same source LLMs they were trained on. We show this
-conflates detection with identifying which LLM wrote the text. We release \textsc{halt}
-(Hallucination Across LLMs and Techniques), a benchmark of 19{,}361 forensic
-video reports (21.8M words) produced by three frontier
-multimodal LLMs across eight prompting strategies on 807 surveillance videos,
-labelled for six hallucination types spanning fabrication, omission, and
-distortion by a cross-judging panel in which no model evaluates its own
-output. The corpus is fully crossed: every video is described by every
-source LLM under every strategy, so any cross-source comparison holds the
-input fixed. Under the standard same-source split, fabrication is the most
-detectable axis (AUC 0.89) and distortion the least (0.77). Under
-leave-one-source-out the ranking inverts: fabrication falls to 0.686 while
-omission holds at 0.793, and binary any-hallucination detection falls from
-0.820 to 0.566, near chance. Reference-conditioned features are the only ones
-that recover binary detection (0.702), though they underperform on omission.
-Because we release per-judge verdicts and independent human labels on a
-shared subset, we can further show that the panel's scene-fabrication label
-tracks report length (AUC 0.727) where the human label does not (0.566), and
-that assigning each source LLM a distinct judge pair, an unavoidable
-consequence of no-self-evaluation, confounds source LLM with measurement
-instrument. Axis-level signatures survive that confound; one fine-grained
-ordering does not. We release the corpus, per-judge verdicts, rubrics,
-reliability tiers, splits, and baselines.
+evaluated on text from the same source LLMs they were trained on. In forensic
+video reporting we show this conflates detection with identifying which LLM
+wrote the text. A detector that silently stops working when the underlying
+model is updated offers false assurance, in a setting where inventing a detail
+and omitting a crime are two different evidentiary failures. We build
+\textsc{halt} (Hallucination Across LLMs and Techniques) on a previously
+released corpus of 19{,}361 forensic video reports (21.8M words) in which
+three frontier multimodal LLMs each describe all 807 surveillance videos,
+spanning eleven crime categories, under all eight prompting strategies,
+labelled for six hallucination types by a cross-judging panel in which no
+model evaluates its own output. Our central result is that
+much of what a detector appears to know is the identity of the model that
+wrote the report: a predictor reading no report text at all, returning only
+the writing model's base rate, captures $70$ to $73\%$ of a detector's
+above-chance signal on the fabrication labels against $13\%$ on omission. Withholding a source LLM accordingly costs the fabrication labels $0.104$ to
+$0.191$ AUC against $0.035$ to $0.105$ for omission and distortion,
+consistently across four detector families from bag-of-words to a fine-tuned
+long-context encoder. Two
+further findings concern the panel's H1--H6 labels: (i) report length predicts
+the panel's scene-fabrication label at AUC $0.727$ but the consensus of two
+human annotators who each independently labelled the same 130 reports at only
+$0.566$, and (ii) models are not allowed to
+judge their own output, so each source LLM is scored by a different pair of
+judges; those pairs differ in how often they agree, so comparing hallucination
+rates across models partly compares their judges. We release the reliability tiers, the four splits, and
+reference implementations of every detector.
 \end{abstract}
 
 % =====================================================================
 \section{Introduction}
 
 Large language models are increasingly evaluated by other large language
-models. Panel-of-judges protocols now label datasets far larger than any human
-annotation effort could reach, and the resulting labels underpin leaderboards,
-safety audits, and deployment decisions. Whether those labels measure what they
-are taken to measure is rarely examined, and the raw judge verdicts are rarely
-released for anyone to check.
+models. Panel-of-judges protocols now label datasets far larger than human
+annotation could reach, and those labels underpin leaderboards, safety audits
+and deployment decisions. Whether they measure what they are taken to measure is rarely examined, and the
+raw verdicts are rarely released.
 
 Hallucination detection inherits both problems. A detector is trained on text
 labelled this way and tested on text from the same LLMs that produced the
 training set, split at random. Model families differ sharply in surface style
-and equally sharply in how often they hallucinate. A detector with access to
+and equally sharply in how often they hallucinate, so a detector with access to
 both regularities can score well by recognising which family wrote a passage
-and applying that family's base rate, without assessing whether any particular
-claim is supported. Under a random split this is invisible, because the models
-at test time are the models at training time. The reported accuracy may
-therefore describe how distinguishable the writers are rather than how
-detectable hallucination is.
+and applying its base rate, without assessing whether any claim is supported.
+Under a random split this is invisible: the models at test time are the models
+at training time.
 
-The distinction matters wherever a detector is deployed against text from a
-model it has not seen, which is the normal case. It matters most in settings
-where the cost of an undetected error is borne by someone other than the
-system's operator. Forensic reporting is one such setting: the difference
-between inventing a detail and omitting a crime is the difference between two
-kinds of evidentiary failure, and a screening tool that silently stops working
-when the underlying model is updated offers false assurance rather than none.
+The distinction matters wherever a detector meets text from a model it has not
+seen, which is the normal case. We study it in forensic video reporting and
+scope our claims to that domain. There, inventing a detail and omitting a crime
+are different evidentiary failures, a screening tool that silently stops
+working when the underlying model is updated offers false assurance, and expert
+reference annotations written independently of any model are available, which
+most long-form generation tasks lack.
 
-Separating the two possibilities requires evidence that existing resources
-cannot supply. It requires text from several model families over identical
-inputs, labelled per instance, so that the writer can be withheld while
-everything else is held fixed. Benchmarks built from a single model, or from
-several pooled without controlling the split, cannot distinguish a detector
-that reads evidence from one that reads style. We therefore ask:
+Separating the two possibilities requires text from several model families over
+identical inputs, labelled per instance, so the source LLM can be withheld while
+everything else is fixed. We therefore ask:
 
 \begin{enumerate}\itemsep1pt
 \item Do hallucination detectors transfer to source LLMs they were not trained
@@ -109,18 +120,28 @@ recover, and for which types?
 judge verdicts and in what excluding self-evaluation implies?
 \end{enumerate}
 
+The report corpus, the labelling protocol, the human-validation subset and the
+per-judge verdicts are inherited from prior work \citep{priorwork2026}, which
+measured how often hallucination occurs and released its materials. Its detectability analysis trained and tested every detector on the same three
+source LLMs, so it could not ask whether detection transfers. New here are: the
+held-out-source split and the three other video-disjoint partitions that make
+the transfer question askable; reference-conditioned detectors and fine-tuned
+long-context encoders, so the result cannot be attributed to weak models;
+per-type reliability tiers; a length-bias diagnosis scoring the panel and human
+labels against the same feature; and a within-judge test showing that excluding self-evaluation confounds the source
+LLM with the judges who scored it.
+
 Throughout, we refer to the LLM that produced a report as its \emph{source
 LLM}, to distinguish it from the LLMs that later judge it. In the language of
 shortcut learning \citep{geirhos2020shortcut}, source identity is a spurious
 feature: predictive in distribution, cheaply recoverable from surface style,
-and worthless once the source changes. Whether detectors rely on it is an
-empirical question, and the remainder of this paper answers it.
+and worthless once the source changes.
 
 % =====================================================================
 \section{Related Work}
 
 Existing hallucination benchmarks target short outputs and a fixed set of
-writers. CHAIR \citep{rohrbach2018object} measures object hallucination in
+source LLMs. CHAIR \citep{rohrbach2018object} measures object hallucination in
 captions, POPE \citep{li2023evaluating} uses polling, HaluEval
 \citep{li2023halueval} benchmarks 35K samples, THRONE \citep{kaul2024throne}
 unifies evaluation across six models, Bingo \citep{cui2023holistic} identifies
@@ -130,28 +151,30 @@ fixed, so none can separate a detector that reads evidence from one that reads
 style. Detection methods inherit the same limitation: SelfCheckGPT
 \citep{manakul2023selfcheckgpt}, semantic entropy \citep{kuhn2023semantic}, and
 FActScore \citep{min2023factscore} detect hallucination via consistency,
-uncertainty, or fact decomposition, but are evaluated within a single writer or
+uncertainty, or fact decomposition, but are evaluated within a single source LLM
+or
 across several pooled without a held-out condition. Our reference-conditioned
-baseline is closest to FActScore, simplified to lexical grounding.
+baseline is closest to FActScore, simplified to lexical grounding. The closest
+analogue to our argument lies outside the hallucination literature:
+\citet{wang2024m4} show that detectors of machine-generated text degrade on
+generators they have not seen. That work asks whether text came from a
+machine; we ask whether a detector nominally judging content is keyed to the
+same signal.
 
 Panel designs \citep{zheng2023judging} and cross-model panels that mitigate
 self-preference \citep{panickssery2024llm} are now standard, and their
-reliability is typically summarised by a single agreement figure. We report it
-per hallucination type against independent human raters, and show that the
-no-self-evaluation constraint itself induces a source-by-instrument confound
-that single-figure reporting hides. The underlying material comes from
-UCF-Crime
-\citep{sultani2018real}, which provides the video benchmark, and UCA
-\citep{yuan2024towards}, whose fine-grained natural-language annotations serve
-as the reference; the reports and per-judge verdicts were generated by
-prior work \citep{priorwork2026} to measure prevalence, a study that considers
-neither detection, transfer, nor the reliability of its own labels.
-Section~\ref{sec:corpus} states what is inherited and what is new.
-
-\paragraph{What this paper adds.} A corpus fully crossed over source LLMs and
-prompting strategies, released with per-judge verdicts; splits that withhold an
-entire source LLM; reference detectors spanning surface, lexical, embedding and
-reference-conditioned features; and a diagnosis of the labels themselves.
+reliability is typically summarised by a single agreement figure. A growing
+body of work questions whether that figure means what it appears to:
+\citet{wang2024fair} document position and scoring biases,
+\citet{wu2023style} show judges reward stylistic properties over substance,
+and \citet{stureborg2024inconsistent} find judges inconsistent across prompts
+and biased toward text they find predictable. Length bias sits in this family.
+We report reliability per hallucination type against independent human raters,
+measure length bias against human labels on the same reports
+(Section~\ref{sec:lengthbias}), and show that the no-self-evaluation constraint
+itself confounds each source LLM with its judges, which single-figure reporting
+hides. Section~\ref{sec:corpus} states what is inherited from prior work and
+what is new.
 
 % =====================================================================
 \input{section3}
@@ -161,7 +184,7 @@ reference-conditioned features; and a diagnosis of the labels themselves.
 \label{sec:results}
 
 
-\begin{table}[t]
+\begin{table}[!b]
 \caption{Per-type label reliability on the 130-report human-annotated subset.
 $\kappa_{\text{panel}}$ compares the panel against the human consensus and is
 computed only on reports where the two raters agree; $n$ is that subset size.
@@ -188,78 +211,36 @@ Macro & & & 0.279 & 0.556 & \\
 \subsection{Corpus statistics and label properties}
 \label{sec:corpusstats}
 
-Under the released aggregation rule, $91.1\%$ of reports carry at least one
-hallucination, with a mean of $2.58$ per report. The rule matters: a
-disjunctive rule on the same verdicts gives $98.5\%$ and $3.55$ per report, a
-seven-point swing in the headline number that a release of aggregated labels
-alone would conceal. Output length differs by a factor of three across source
-LLMs under an identical task (Table~\ref{tab:corpus}), which is the regularity
-the rest of this section shows detectors exploiting.
+The prior study reports $91.1\%$ of reports carrying at least one
+hallucination under the released rule. What it does not report is how far that
+depends on the rule: a disjunctive rule on the same verdicts gives $98.5\%$ and
+$3.55$ per report, a seven-point swing that a release of aggregated labels
+alone would conceal.
 
 Reliability is strongly type-dependent (Table~\ref{tab:reliability}): entity
-fabrication, crime misclassification, and phantom actors reach $\kappa$ of
-$0.81$, $0.70$, and $0.66$ against the human consensus, while scene
-fabrication reaches only $0.15$ and is excluded from the headline macro.
-Two qualifications matter for anyone using the resource. The consensus
-$\kappa$ is computed only on reports where the two raters agree, and that
-subset ranges from 62 to 110 of 130, so H5's $0.81$ rests on 64 reports. And
-the raters agree only modestly with each other on the fabrication types
-(macro $\kappa = 0.28$, with $\kappa \approx 0$ on H1), below the judges'
-mutual agreement. The disagreement has a direction: because reference
-annotations are summary-level, a report describing genuinely observed but
-granular detail absent from the summary can be scored as fabrication, and on
-the consensus subset the panel flags scene fabrication in $62\%$ of reports
-both humans call negative while almost never missing a human-confirmed one.
-Absolute fabrication prevalence should therefore be read as an upper bound;
-the relative quantities the benchmark supports are unaffected, since any
-labelling bias is shared across source LLMs.
+fabrication, misclassification and phantom actors reach $\kappa$ of $0.81$,
+$0.70$ and $0.66$ against the human consensus, scene fabrication only $0.15$,
+and we exclude it from the headline macro.
+Two qualifications apply. The consensus $\kappa$ is computed only where the two
+raters agree, a subset of 62 to 110 of 130, so H5's $0.81$ rests on 64 reports and, since the restriction selects the
+straightforward cases, $\kappa_{\text{panel}}$ is an upper bound. The raters also agree only modestly
+with each other on fabrication (macro $\kappa = 0.28$, $\kappa \approx 0$ on
+H1), and the disagreement has a direction: because references are
+summary-level, granular detail absent from the summary can be scored as
+fabrication. Absolute fabrication prevalence is therefore an upper bound;
+relative comparisons are unaffected, since the bias is shared across source
+LLMs. Because judge inputs truncate the report at $3{,}000$ characters and the
+most verbose source LLMs are the most truncated, truncation can only understate
+their fabrication rates.
 
-Judge inputs cap model output at $3{,}000$ characters and $65\%$ of reports
-exceed it, with the most verbose source LLMs the most truncated. Truncation can
-therefore only understate their fabrication rates rather than manufacture them.
+\subsection{Same-source detection reproduces prior findings}
 
-\subsection{Same-source detection reproduces prior findings (RQ1)}
+Under the standard video-disjoint random split we reproduce the prior study's
+detectability finding, including that source identity is its most informative
+single feature: surface features reach 0.858 on scene fabrication against 0.646
+on crime omission, and TF-IDF reaches 0.846 macro and 0.820 binary. That is
+what a practitioner would conclude under conventional evaluation.
 
-Under the standard video-disjoint random split
-(released artifact, \S B--C), fabrication is the most
-detectable axis.
-Surface features alone reach 0.858 on scene fabrication and 0.865 on entity
-fabrication, against 0.646 on crime omission and 0.653 on severity
-minimization. TF-IDF improves every type, reaching 0.846 macro and 0.820
-binary. This ordering, fabrication detectable and omission resistant, matches
-what prior work reports and is what a practitioner would conclude from this
-corpus under conventional evaluation.
-
-\begin{table}[t]
-\caption{Leave-one-source-out, TF-IDF features. The random-split row is
-repeated from the same-source baseline for comparison. Fabrication types
-(H1, H5) degrade four to five times as much as the omission and distortion
-types. Brackets give bootstrap 95\% confidence intervals (1{,}000 resamples).
-The H3 interval does not overlap the H1 or H5 interval in any fold.}
-\label{tab:logo}
-\centering\footnotesize
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lrrrrrrr}
-\toprule
-Held-out source LLM & H1 & H2 & H3 & H4 & H5 & H6 & ANY \\
-\midrule
-\multirow{2}{*}{Claude}
- & 0.596 & 0.718 & 0.787 & 0.788 & 0.671 & 0.778 & 0.539 \\
- & \tiny[.581,.611] & \tiny[.704,.732] & \tiny[.776,.799] & \tiny[.774,.801] & \tiny[.658,.686] & \tiny[.765,.788] & \tiny[.502,.578] \\
-\multirow{2}{*}{GPT}
- & 0.702 & 0.735 & 0.796 & 0.779 & 0.719 & 0.736 & 0.548 \\
- & \tiny[.689,.714] & \tiny[.719,.749] & \tiny[.785,.807] & \tiny[.767,.790] & \tiny[.707,.730] & \tiny[.713,.760] & \tiny[.531,.566] \\
-\multirow{2}{*}{Gemini}
- & 0.630 & 0.727 & 0.795 & 0.715 & 0.621 & 0.720 & 0.613 \\
- & \tiny[.613,.644] & \tiny[.715,.741] & \tiny[.785,.806] & \tiny[.702,.729] & \tiny[.604,.640] & \tiny[.708,.732] & \tiny[.585,.636] \\
-\midrule
-Mean (held-out)  & 0.643 & 0.727 & 0.793 & 0.761 & 0.671 & 0.744 & 0.566 \\
-Random split     & 0.882 & 0.773 & 0.854 & 0.822 & 0.888 & 0.859 & 0.820 \\
-\midrule
-Degradation      & $-$0.239 & $-$0.046 & $-$0.061 & $-$0.061 & $-$0.217 & $-$0.115 & $-$0.254 \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \begin{figure}[t]
 \centering
@@ -272,101 +253,175 @@ ordering a same-source evaluation would report.}
 \label{fig:inversion}
 \end{figure}
 
-\subsection{The ordering inverts under source-LLM shift (RQ1--RQ3)}
-
-Leave-one-source-out reverses it (Table~\ref{tab:logo},
-Figure~\ref{fig:inversion}). Averaged over
-three folds, TF-IDF gives fabrication 0.686 and omission 0.793. Scene
-fabrication falls from 0.882 to 0.643 and entity fabrication from 0.888 to
-0.671, while crime omission falls only from 0.854 to 0.793 and crime
-misclassification from 0.773 to 0.727. The types that looked easiest degrade
-four to five times as much as the types that looked hardest.
-
-The separation is statistically unambiguous. Bootstrap 95\% intervals
-(Table~\ref{tab:logo}) place crime omission at $[0.776, 0.799]$,
-$[0.785, 0.807]$, and $[0.785, 0.806]$ across the three folds, while scene
-fabrication never exceeds $0.714$ and entity fabrication never exceeds
-$0.730$. The omission interval overlaps neither fabrication interval in any
-fold, so each of the two principal fabrication types is significantly less
-detectable than omission under source-LLM shift.
-
-The effect is not an artifact of residual video overlap. Because each video
-contributes 24 reports, holding out a source LLM leaves the same videos on both
-sides of the split. Re-running the three folds with video disjointness
-additionally enforced (training on 9{,}003 reports, testing on 1{,}016) lowers
-every number and widens the gap: fabrication falls to 0.668 and omission to
-0.780, so the omission-minus-fabrication margin grows from 0.107 to 0.112,
-and binary detection falls to 0.559. The figures we report throughout are
-therefore the conservative ones.
-
-Binary detection collapses outright. Any-hallucination AUC falls from 0.820
-to 0.566, with per-fold values of 0.539, 0.548, and 0.613. On the held-out
-Claude fold the interval is $[0.502, 0.578]$: detecting whether a long-form
-report contains any hallucination at all, on a source LLM the detector has not
-seen, is statistically indistinguishable from a coin flip.
-
-The mechanism is visible in the corpus statistics. Scene fabrication
-prevalence is 89.6\% for Claude and 70.7\% for Gemini against 30.9\% for GPT,
-and mean report length varies from 580 to 1{,}802 words across the three. A
-detector that identifies the source LLM from style and applies its base rate
-achieves high apparent fabrication accuracy. Removing identity features does
-not remove the shortcut, since style is recoverable from the text itself
-(released artifact, \S B--C).
-
-Transfer also depends on whether a similar failure profile appears in
-training. Holding out GPT, the only omission-dominant family, drops embedding
-scene-fabrication AUC to 0.526 while raising crime-omission AUC to 0.824.
-Holding out Claude, leaving the similarly fabrication-dominant Gemini, raises
-scene fabrication to 0.853. Detectors generalise to a new source LLM mainly
-when the training pool contains one that fails the same way, which is an
-argument for benchmarks that span multiple source-LLM families rather than
-scaling a single one.
-
 \begin{table}[t]
-\caption{Feature sets under leave-one-source-out, averaged over the three
-folds. Axis scores are the mean per-type AUC within the axis. No feature set
-wins on every axis; reference-conditioned features are the only ones that
-recover binary detection.}
-\label{tab:grounded}
-\centering\small
-\begin{tabular}{lrrrrr}
+\caption{Degradation from the standard split to leave-one-source-out, by axis,
+for four detector families. Drops are LOSO minus standard. The ratio is the
+fabrication drop divided by the larger of the omission and distortion drops,
+the conservative choice; it is quoted in this form throughout. Fabrication
+degrades most in every family.}
+\label{tab:families}
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrrrrr}
 \toprule
-Features & Fabrication & Omission & Distortion & \textsc{macro} & ANY \\
+ & \multicolumn{3}{c}{drop by axis} & & \multicolumn{2}{c}{ANY} & \\
+\cmidrule(lr){2-4}\cmidrule(lr){6-7}
+Detector & fabr. & omis. & dist. & \textsc{macro} & standard & LOSO & ratio \\
 \midrule
-surface           & 0.584 & 0.494 & 0.545 & 0.558 & 0.583 \\
-embed             & 0.669 & 0.719 & 0.658 & 0.674 & 0.595 \\
-tfidf             & 0.686 & \textbf{0.793} & \textbf{0.744} & \textbf{0.723} & 0.566 \\
-grounded          & 0.679 & 0.577 & 0.587 & 0.631 & \textbf{0.702} \\
-grounded+surface  & \textbf{0.691} & 0.607 & 0.599 & 0.646 & 0.652 \\
+tfidf (linear)      & $-$0.191 & $-$0.061 & $-$0.054 & $-$0.123 & 0.820 & 0.566 & 3.1$\times$ \\
+DeBERTa-v3, 512     & $-$0.104 & $-$0.035 & $-$0.043 & $-$0.072 & 0.861 & 0.729 & 2.4$\times$ \\
+ModernBERT, 1{,}280 & $-$0.163 & $-$0.089 & $-$0.097 & $-$0.129 & 0.833 & 0.644 & 1.7$\times$ \\
+ModernBERT, 2{,}048 & $-$0.145 & $-$0.079 & $-$0.105 & $-$0.120 & 0.832 & 0.642 & 1.4$\times$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Grounding recovers binary detection but not omission (RQ4)}
+\subsection{Detection of the fabrication labels degrades most (RQ1--RQ2)}
+\label{sec:inversion}
 
-Reference-conditioned features are the only ones that move binary detection
-under source-LLM shift, reaching 0.702 against 0.566 for TF-IDF, 0.595 for
-embeddings, and 0.583 for surface (Table~\ref{tab:grounded}). They also give
-the best fabrication axis, 0.691 when combined with surface features.
+Every detector degrades under leave-one-source-out, and every one degrades
+unevenly (Table~\ref{tab:families}, Figure~\ref{fig:inversion}): fabrication
+falls by 0.104 to 0.191 AUC against 0.035 to 0.105 for omission and distortion,
+a ratio of 1.4 to 3.1. We describe this as degradation of the fabrication
+\emph{labels}: the raters agree least on exactly these types
+(Section~\ref{sec:corpusstats}), so a property of fabrication and a property of
+how fabrication is labelled here cannot be separated. For the lexical detector
+the loss inverts the per-type ordering outright, TF-IDF giving fabrication 0.686 against omission 0.793 under
+shift having given 0.876 against 0.854 in distribution.
 
-They are, however, worse on omission: 0.577 against TF-IDF's 0.793. We
-expected the reference-token-coverage feature to capture crime omission
-directly and it does not. Whether a report drops the criminal event is
-apparently expressed in how the report is written rather than in bag-of-words
-coverage of the reference. No feature set wins everywhere, and the best macro
-under source-LLM shift is TF-IDF at 0.723, leaving substantial headroom for a
-detector that grounds claims in the footage rather than in a lexical
-reference. Binary detection under shift is thus the benchmark's open problem,
-with omission and distortion under grounding a second target.
+The difference is statistically unambiguous. Bootstrapping the fabrication
+degradation minus the omission-and-distortion degradation over 1{,}000
+resamples of both splits gives $-0.134$ with a 95\% interval of
+$[-0.148, -0.121]$, excluding zero. Per type
+(Table~\ref{tab:logoci}): bootstrap 95\% intervals place crime omission above
+$0.776$ in every fold, while scene fabrication never exceeds $0.714$ and entity
+fabrication never $0.730$, and the intervals do not overlap in any fold.
+
+The effect is not an artifact of residual video overlap: enforcing video
+disjointness as well lowers every number and widens the gap, fabrication to
+$0.668$ against omission $0.780$ and binary detection to $0.559$
+(Appendix~\ref{app:strict}).
+
+For the lexical detector binary detection all but disappears: any-hallucination
+AUC falls from 0.820 to 0.566, and on the held-out Claude fold the interval is
+$[0.502, 0.578]$, indistinguishable from a coin flip.
+
+Nor is it an artifact of the low-reliability type. Dropping H1 from the
+fabrication axis, as the headline macro already does, leaves the ordering
+intact: the ratio falls to 2.7, 2.2, 1.5 and 1.1 respectively. Entity
+fabrication and phantom actors alone carry the effect.
+
+The encoders retain far more under shift, with binary detection at 0.642 to
+0.729 against 0.566, and fabrication remains the worst-hit axis for every one.
+The size of the asymmetry does not track detector strength: DeBERTa at 512
+tokens is the strongest detector under shift on both binary AUC and macro loss,
+yet its ratio of 2.4 exceeds either ModernBERT's. Within the encoder family it
+falls as context grows, 2.4 to 1.7 to 1.4, but context does not explain it
+either, since TF-IDF sees the whole report untruncated and has the largest
+ratio of all. We cannot say whether the ratio plateaus above one. For screening at volume,
+the cheapest encoder is thus also the most robust, DeBERTa processing 2.5 times
+fewer tokens per report than ModernBERT at 1{,}280.
+
+Context is not the binding constraint. ModernBERT at 1{,}280 tokens sees what
+the judge saw, at 2{,}048 it sees more, and the two are indistinguishable under
+shift (binary 0.644 against 0.642), consistent with the labels rather than the
+detector's input being the limiting factor, though it does not establish that.
+
+Why detectors fail at all is clearer than why fabrication fails most. Scene
+fabrication prevalence is $89.6\%$ for Claude and $70.7\%$ for Gemini against
+$30.9\%$ for GPT, so recognising the source and applying its base rate scores
+well without assessing any claim. Section~\ref{sec:shortcut} measures how
+much of the signal that accounts for. Removing
+identity features does not help; style is recoverable from the text itself
+(Appendix~\ref{app:baselines}).
+
+Transfer also depends on whether a similar failure profile appears in training:
+holding out GPT, the only omission-dominant family, drops embedding
+scene-fabrication AUC to $0.527$ (Table~\ref{tab:perfold}), while holding out
+Claude raises it to
+$0.853$.
+
+The held-out-strategy split isolates what is specific to the source LLM rather
+than to distribution shift in general. Training on single-turn strategies and
+testing on multi-turn ones costs TF-IDF almost nothing: macro 0.846 to 0.837,
+binary 0.820 to 0.808 (Appendix~\ref{app:strategy}), and the other feature sets behave the same way. A detector that has never seen multi-turn reports handles
+them; one that has never seen a source LLM does not.
+
+\subsection{Source identity is recoverable, and carries most of the signal (RQ3)}
+\label{sec:shortcut}
+
+The shortcut can be measured rather than inferred. A TF-IDF classifier
+predicting which of the three source LLMs wrote a report reaches $1.000$
+accuracy on held-out videos against a chance rate of $0.333$.
+
+What that buys depends sharply on the type (Table~\ref{tab:baserate}). A
+predictor with no access to the report, returning only the source LLM's
+training-set prevalence, reaches $0.777$ on scene fabrication and $0.773$ on
+entity fabrication against the lexical detector's $0.882$ and $0.888$. On the
+above-chance scale that is $73\%$ and $70\%$ of what the detector achieves. On
+crime omission it reaches $0.545$ against $0.854$, or $13\%$. Detection of the
+fabrication labels is therefore mostly source recognition and omission is
+mostly not, which is the mechanism behind the transfer asymmetry.
+
+\begin{table}[t]
+\caption{How much of a detector's above-chance signal source identity alone
+supplies. The base-rate predictor sees no report text: it returns the
+training-set prevalence of its label for the source LLM that wrote the report.
+Share is $(\text{base-rate}-0.5)/(\text{tfidf}-0.5)$, both on the standard
+video-disjoint split.}
+\label{tab:baserate}
+\centering\small
+\begin{tabular}{llrrr}
+\toprule
+Type & Axis & base rate & tfidf & share \\
+\midrule
+H1 Scene Fabrication       & fabrication & 0.777 & 0.882 & 73\% \\
+H5 Entity Fabrication      & fabrication & 0.773 & 0.888 & 70\% \\
+H6 Phantom Actors          & fabrication & 0.662 & 0.859 & 45\% \\
+H2 Crime Misclassification & distortion  & 0.595 & 0.773 & 35\% \\
+H4 Severity Minimization   & distortion  & 0.599 & 0.822 & 31\% \\
+H3 Crime Missed            & omission    & 0.545 & 0.854 & 13\% \\
+\midrule
+ANY                        & binary      & 0.725 & 0.820 & 70\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{What grounding buys, and what it does not (RQ4)}
+\label{sec:grounding}
+
+Among the linear detectors, reference-conditioned features are the only ones
+that move binary detection under shift, reaching 0.702 against 0.566 for TF-IDF
+(Appendix~\ref{app:features}), and they give that family's best fabrication axis.
+The encoders exceed that without grounding at all: what grounding buys
+the linear family, capacity buys the encoder family, and neither removes the
+asymmetry of Table~\ref{tab:families}.
+
+One surface cell is diagnostic: on the held-out-Gemini fold severity
+minimization falls to $0.443$, below chance, so the relationship learned in distribution reverses on an unseen source
+rather than merely weakening, as a shortcut does when its feature is
+anti-correlated in the held-out family.
+
+Grounding is, however, worse on omission: 0.577 against TF-IDF's 0.793. Our
+grounded features are lexical by construction, so we tested a semantic version: a cross-encoder NLI model scores every report sentence against the
+reference and, in the reverse direction, every reference sentence against the
+report, aggregated into report-level entailment and contradiction features. The
+reverse direction is what should capture a dropped criminal act. It helps
+omission and does not rescue it, 0.577 to 0.625 under shift, while costing
+elsewhere: the entailment detector reaches 0.632 binary against grounding's
+0.702 and 0.648 on omission in distribution against TF-IDF's 0.854. Its
+degradation ratio, 4.8, is the largest of any detector we ran. Whether a report
+drops the criminal event is therefore not a lexical-representation problem, and
+claim-decomposed matching \citep{min2023factscore} may fare no better. No detector wins everywhere, and binary detection under shift
+remains the benchmark's open problem, at 0.729 for the strongest detector
+against 0.861 in distribution.
 
 \begin{table}[t]
 \caption{Does report length predict the panel label or the human label?
 AUC of a single feature, report word count, against each label source on the
 130-report subset. The human column is restricted to reports where both
-raters agree ($n$ from Table~\ref{tab:reliability}). A large positive gap
-means the feature tracks the judge rather than the phenomenon. Report length is
-the only feature with a positive gap of any magnitude; the reference-conditioned
-features diverge in the opposite direction; the remaining columns are in the released artifact, \S D.}
+raters agree ($n$ from Table~\ref{tab:reliability}). A large positive gap means the feature tracks the judge rather than the
+phenomenon. Other features are in Appendix~\ref{app:divergence}.}
 \label{tab:artifact}
 \centering\footnotesize
 \setlength{\tabcolsep}{4pt}
@@ -384,107 +439,106 @@ H6 Phantom Actors          & 0.662 & 0.668 & $-$0.006 \\
 \end{tabular}
 \end{table}
 
-\subsection{Panel labels carry a length bias (RQ5)}
+\subsection{Two properties of the labels themselves (RQ5)}
+\label{sec:lengthbias}
 
-Because we release panel labels and independent human labels on a shared
-subset of 130 reports, a single feature can be scored against both label
-sources (Table~\ref{tab:artifact}). Report length predicts the panel's
+Two properties of the labels limit what they can support. The first is a
+length bias, exposed by scoring a single feature against both the panel and
+the human labels on the shared 130 reports (Table~\ref{tab:artifact}). Report length predicts the panel's
 scene-fabrication label at AUC 0.727 but the human label at only 0.566, a gap
-of 0.161. Severity minimization diverges more sharply still: for humans,
-length runs inverse to the label (0.275, well below chance), while the panel
-sees no relationship at all (0.505).
+of 0.161. Severity minimization diverges more sharply still: for humans, length runs
+inverse to the label (0.275), while the panel sees no relationship (0.505).
+Entity fabrication and phantom actors show no such gap ($0.784$ versus $0.800$,
+$0.662$ versus $0.668$), so the bias is specific rather than pervasive: it says
+which labels to distrust, not that all are suspect.
 
-Entity fabrication and phantom actors show no such gap, 0.784 versus 0.800
-and 0.662 versus 0.668. Panel and humans agree there that longer reports
-fabricate more. The bias is therefore specific rather than pervasive, which
-is what makes it diagnostic rather than merely deflationary: it identifies
-which labels to distrust rather than casting doubt on all of them.
+The divergence is specific to verbosity, not to disagreement in general. The
+same comparison for the reference-conditioned features gives negative gaps on
+almost every type, reaching $-0.236$ on scene fabrication. Only report length
+predicts the judge better than it predicts a human reader.
 
-The divergence is specific to verbosity rather than to disagreement in
-general. Repeating the comparison for the reference-conditioned features gives
-negative gaps on almost every type, reaching $-0.236$ on scene fabrication. On
-grounded quantities the panel does not diverge from the human raters at all;
-only report length predicts the judge better than it predicts a human reader.
-
-The direction matches the labelling mechanism identified in
-Section~\ref{sec:corpusstats}: longer reports contain more granular detail
-absent from a summary-level reference, and that detail is scored as
-fabrication.
+Part of the effect is mechanical. Judge inputs cap at 3{,}000 characters, so
+above the cap length is unobservable: the truncation flag alone predicts the
+panel's scene-fabrication label at $0.686$, and within truncated reports length
+falls to $0.537$. It does not dissolve there. On the 45 untruncated reports the
+panel reaches $0.669$ against the human's $0.566$, consistent with the
+labelling mechanism of Section~\ref{sec:corpusstats}, where granular detail
+absent from a summary-level reference is scored as fabrication. The bias is
+real but smaller than the pooled $0.727$ suggests.
 
 
-\subsection{No self-evaluation implies a source-by-instrument confound (RQ5)}
 
-Excluding self-evaluation has an unavoidable consequence: each source LLM is
-scored by a different pair of judges, and those pairs differ in mutual
-agreement by a factor of five on the fabrication types, from Cohen's
-$\kappa = 0.850$ down to $0.148$. Under a conjunctive aggregation rule a
-disagreeing pair produces fewer positives for purely mechanical reasons, so
-aggregated per-source rates confound the source LLM with its measurement
-instrument. To our knowledge this has not been reported, and it applies to
-any no-self-evaluation panel.
 
-The confound is testable here because each judge scores exactly two
-source LLMs, permitting a within-judge comparison that holds the instrument
-fixed (released artifact, \S B--C). Across 18 judge-by-type-by-pair
-comparisons, the source LLM ordering given by the aggregated labels is
-reproduced in 16. At the axis level it is reproduced in all six: every judge
-that sees GPT calls it omission-dominant, and every judge that sees Claude or
-Gemini calls them fabrication-dominant.
+\label{sec:confound}
+The second property is structural. Excluding self-evaluation has an
+unavoidable consequence: each source LLM is scored by a different pair of
+judges. Those pairs differ sharply in mutual
+agreement. Cohen's $\kappa$ on scene fabrication is $0.850$, $0.415$ and
+$0.148$ for the pairs scoring Claude, GPT and Gemini respectively
+(Appendix~\ref{app:confound}), so under a conjunctive rule a disagreeing pair
+yields fewer positives for purely mechanical reasons. The pairwise agreements
+are published with the corpus; what has not been drawn from them is that under
+no-self-evaluation they attach to source LLMs rather than to judges. That makes
+them a confound between the source LLM and its judges rather than a reliability
+statistic, and it follows from the design rather than from this corpus.
 
-The two failures are informative. Both fall on the GPT judge and both on
-fabrication types, where GPT-as-judge flags nearly everything it sees (92.0\%
-and 96.1\% on scene fabrication for the two source LLMs it scores) and
-therefore cannot discriminate between them. The Claude-versus-Gemini
-fabrication ordering rests on a 4 to 7 point within-judge margin and is
-judge-dependent. The Claude-versus-GPT and Gemini-versus-GPT orderings, with
-within-judge gaps of 29 to 41 points reproduced by every judge, are robust. None of
-this is checkable without the raw verdicts, which cost nothing to release and
-foreclose nothing: the same verdicts yield $91.1\%$ or $98.5\%$ prevalence
-depending on the aggregation rule alone.
+The confound is testable because each judge scores exactly two source LLMs,
+permitting a within-judge comparison that holds the judge fixed
+(Appendix~\ref{app:confound}). Across 18 judge-by-type-by-pair comparisons the ordering
+given by the aggregated labels is reproduced in 16, and at the axis level in
+all six: every judge that sees GPT calls it omission-dominant, and every judge
+that sees Claude or Gemini calls them fabrication-dominant.
+
+Both failures fall on the GPT judge and on fabrication types, where it flags
+nearly everything it sees ($92.0\%$ and $96.1\%$ on scene fabrication) and
+cannot discriminate. The Claude-versus-Gemini fabrication ordering rests on a 4
+to 7 point within-judge margin and is judge-dependent; the two orderings
+involving GPT, at 29 to 41 points and reproduced by every judge, are robust.
 
 % =====================================================================
 % =====================================================================
 \section{Limitations}
 
-\textbf{Single corpus, three families.} All reports derive from one video
-benchmark and one annotation set, and leave-one-source-out has three folds.
-The effect is consistent across all three, but three is a small sample for a
-claim about source-LLM families in general, and whether the inversion
-reproduces on other long-form tasks is untested.
+\textbf{Three source LLMs.} Leave-one-source-out has three folds, thin
+evidence for a claim about model families in general.
 
-\textbf{Small human subset.} The label-divergence analysis rests on 130
-reports, with 62 to 110 per type after restricting to rows where both raters
-agree; gaps below roughly 0.10 should be treated as noise, and the two we
-report exceed it. Reference annotations are summary-level, which is the source
-of the fabrication labelling bias we quantify rather than eliminate.
+\textbf{Fabrication labels, not fabrication.} Our raters agree least on these
+types (macro $\kappa = 0.28$) and the panel's label tracks report length where
+theirs does not, so a property of fabrication and a property of how it is
+labelled here cannot be separated. The asymmetry does survive dropping the
+weakest type, in all four detector families.
 
-\textbf{Simple baselines.} All detectors are linear; the comparison of
-interest is between splits, using the same detector on both sides.
+\textbf{One domain.} The magnitudes should not be assumed to carry to
+summarisation, captioning or dialogue; settling that needs a replication on a
+second corpus crossed over generators.
 
-% =====================================================================
 \section{Conclusion}
 
 Hallucination detectors are evaluated almost exclusively on text from the
-source LLMs they were trained on. \textsc{halt} makes the alternative testable,
-and much of the reported skill turns out to be recognition of the writer rather
-than assessment of the claim: withholding a source LLM inverts the per-type
-ordering and drives binary detection to the edge of chance. Grounding against
-the reference moves it only part of the way, and the labels carry a related
-weakness, tracking report length where human annotators do not. Held-out-source
-evaluation should be routine for any detector claimed to detect a phenomenon
-rather than a model, and per-judge verdicts released as standard.
+source LLMs they were trained on, and that evaluation cannot distinguish
+detecting the phenomenon from recognising the source LLM. In forensic video
+reporting the source LLM is trivially recoverable, a base-rate predictor that
+reads
+no text supplies most of the apparent signal on the fabrication labels, and
+withholding a source LLM costs those labels several times what it costs
+omission and distortion, consistently across four detector families. The
+labels themselves carry a related weakness, tracking report length where human
+annotators do not, and the no-self-evaluation constraint that makes the panel
+credible also gives each source LLM its own pair of judges. A
+held-out-source condition is what separates detection from source recognition,
+and per-judge
+verdicts are what make the labels auditable.
 
-% =====================================================================
 \section*{Ethics Statement}
 
 The corpus derives from a publicly available surveillance benchmark of
-de-identified footage. Annotation was performed by members of the research
-group working from text. We release the resource for auditing and detector
-development. It is not suitable for, and we do not endorse, automated legal
-or investigative decision-making: a system whose error rate depends on the
-source LLM, the prompting strategy, and the event type does not meet the
-standard any evidentiary use would require, which is part of what these
-results establish.
+de-identified footage; annotators worked from text only. We release the
+resource for auditing and detector development. It is not suitable for
+automated legal or investigative decision-making: a system whose error rate
+depends on the source LLM, the prompting strategy and the event type does not
+meet the standard evidentiary use would require.
+
+\input{ai_use_statement}
 
 \section*{Reproducibility Statement}
 
@@ -494,7 +548,10 @@ corpus statistics on each run so that divergence is caught immediately. All
 splits are seeded. Section~\ref{sec:release} lists the released artifacts and
 gives the anonymous repository link.
 
-\bibliography{refs}
+{\setlength{\bibsep}{3pt plus 0.3ex}\small
+\bibliography{refs}}
 \bibliographystyle{iclr2027_conference}
+
+\input{appendix}
 
 \end{document}

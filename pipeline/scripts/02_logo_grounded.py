@@ -111,7 +111,8 @@ piv["macro"] = piv[H].mean(axis=1).round(3)
 out = ["# Leave-one-generator-out\n",
        "AUC on the held-out generator, averaged over three folds.\n",
        piv.to_markdown(), "\n\n## Per-fold detail\n"]
-for f in FEATS:
+from tqdm.auto import tqdm
+for f in tqdm(FEATS, desc='feature sets', unit='set'):
     out.append(f"\n### {f}\n")
     out.append(r[r.features == f].pivot(index="held_out", columns="target",
                                         values="auc")[TARGETS].round(3).to_markdown())
